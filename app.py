@@ -74,13 +74,20 @@ st.title("💎 RAJPWA — குடும்ப நிதி & செலவு �
 current_month = datetime.now().strftime("%Y-%m")
 
 # பயனர் தேர்வு (கணவர் / மனைவி)
-col_u1, col_u2 = st.columns(2)
+col_u1, col_u2 = st.columns()
 active_user = col_u2.radio("தற்போதைய பயனர்:", ["👤 Rajkumar (கணவர்)", "👩 மனைவி (Household)"], horizontal=True)
 
-tabs = st.tabs(["📊 டேஷ்போர்டு", "➕ செலவு பதிவு & SMS", "🛒 மளிகை ஸ்டாக்", "🏦 கடன்கள்", "📈 குடும்ப அறிக்கை"])
+# 5 தனித்தனி டேப்கள்
+tab_dash, tab_entry, tab_grocery, tab_loans, tab_report = st.tabs([
+    "📊 டேஷ்போர்டு", 
+    "➕ செலவு பதிவு & SMS", 
+    "🛒 மளிகை ஸ்டாக்", 
+    "🏦 கடன்கள்", 
+    "📈 குடும்ப அறிக்கை"
+])
 
 # ==================== 1. DASHBOARD ====================
-with tabs[0]:
+with tab_dash:
     st.subheader(f"📅 {datetime.now().strftime('%B %Y')} மாதாந்திர நிலவரம்")
     conn = get_db()
     df = pd.read_sql_query(f"SELECT * FROM expenses WHERE strftime('%Y-%m', date) = '{current_month}'", conn)
@@ -101,7 +108,7 @@ with tabs[0]:
         st.dataframe(summary.rename(columns={"category": "பிரிவு", "amount": "தொகை (₹)"}), use_container_width=True)
 
 # ==================== 2. SMS & MANUAL INPUT ====================
-with tabs:
+with tab_entry:
     st.subheader("📲 செலவுகளைப் பதிவு செய்ய")
     
     st.markdown("#### 1. SMS டிகோடர் (வங்கி SMS-ஐ பேஸ்ட் செய்யவும்)")
@@ -151,7 +158,7 @@ with tabs:
             st.rerun()
 
 # ==================== 3. GROCERY STOCK ====================
-with tabs:
+with tab_grocery:
     st.subheader("🛒 மளிகை பொருட்கள் கையிருப்பு மேலாண்மை")
     conn = get_db()
     g_df = pd.read_sql_query("SELECT * FROM grocery_stock", conn)
@@ -187,7 +194,7 @@ with tabs:
             st.success("✅ அனைத்துப் பொருட்களும் தேவையான அளவு கையிருப்பில் உள்ளன!")
 
 # ==================== 4. LOANS ====================
-with tabs:
+with tab_loans:
     st.subheader("🏦 கடன் & EMI கண்காணிப்பு")
     conn = get_db()
     l_df = pd.read_sql_query("SELECT * FROM loans", conn)
@@ -198,7 +205,7 @@ with tabs:
     }), use_container_width=True)
 
 # ==================== 5. FAMILY PEACE REPORT ====================
-with tabs:
+with tab_report:
     st.subheader("📈 குடும்ப மாதாந்திர நிதி அறிக்கை")
     conn = get_db()
     rep = pd.read_sql_query(f"SELECT category, user, SUM(amount) as total FROM expenses WHERE strftime('%Y-%m', date) = '{current_month}' GROUP BY category, user", conn)
