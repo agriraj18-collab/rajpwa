@@ -123,15 +123,6 @@ def init_db():
             remaining_months INTEGER
         )
     """)
-    
-    # ஆரம்பக் கடன்கள்
-    c.execute("SELECT COUNT(*) FROM loans")
-    if c.fetchone()[0] == 0:
-        c.executemany("INSERT INTO loans (loan_name, total_amount, monthly_emi, due_day, remaining_months) VALUES (?, ?, ?, ?, ?)", [
-            ("L&T பினான்ஸ் லோன்", 150000.0, 2754.0, 5, 24),
-            ("ஸ்கூட்டர் லோன் (Scooter EMI)", 65000.0, 2100.0, 10, 18),
-            ("ஹோம் லோன் (Home Loan)", 1200000.0, 11500.0, 7, 120)
-        ])
     conn.commit()
     conn.close()
 
@@ -406,16 +397,57 @@ with tab_upload:
             except Exception as e:
                 st.error(f"பிழை: {e}")
 
-# ==================== 5. LOANS ====================
+# ==================== 5. LOANS & MANUAL MANAGEMENT ====================
 with tab_loans:
-    st.subheader("🏦 கடன் & EMI கண்காணிப்பு")
+    st.subheader("🏦 கடன் & EMI முழுமையான மேலாண்மை")
     conn = get_db()
     l_df = pd.read_sql_query("SELECT * FROM loans", conn)
     conn.close()
-    st.dataframe(l_df.rename(columns={
-        "loan_name": "கடன் பெயர்", "total_amount": "அசல் / இருப்பு (₹)",
-        "monthly_emi": "மாத தவணை (₹)", "due_day": "தவணை தேதி", "remaining_months": "மீதமுள்ள மாதங்கள்"
-    }), use_container_width=True)
+    
+    col_l1, col_l2 = st.columns(2)
+    
+    with col_l1:
+        st.write("### ➕ புதிய கடன் சேர்க்க (Add Real Loan):")
+        with st.form("add_loan_form"):
+            l_name = st.text_input("கடன் பெயர் (எ.கா: L&T Loan, SBI Gold Loan, TVS Jupiter EMI):")
+            l_total = st.number_input("மொத்த அசல் / இருப்புத் தொகை (₹):", min_value=0.0, value=50000.0, step=5000.0)
+            l_emi = st.number_input("மாதாந்திர EMI / வட்டித் தொகை (₹):", min_value=0.0, value=2500.0, step=500.0)
+            l_day = st.number_input("மாத தவணை தேதி (1 முதல் 31):", min_value=1, max_value=31, value=5)
+            l_months = st.number_input("மீதமுள்ள தவணை மாதங்கள்:", min_value=1, value=12)
+            
+            if st.form_submit_button("💾 கடனைப் பதிவு செய்"):
+                if l_name:
+                    conn = get_db()
+                    conn.execute("INSERT OR REPLACE INTO loans (loan_name, total_amount, monthly_emi, due_day, remaining_months) VALUES (?, ?, ?, ?, ?)",
+                                 (l_name, l_total, l_emi, l_day, l_months))
+                    conn.commit()
+                    conn.close()
+                    st.success(f"✅ '{l_name}' வெற்றிகரமாகச் சேர்க்கப்பட்டது!")
+                    st.rerun()
+                else:
+                    st.error("கடன் பெயரை உள்ளிடவும்!")
+
+    with col_l2:
+        st.write("### 📋 தற்போதைய கடன்கள் பட்டியல் (நீக்க/நிர்வகிக்க):")
+        if not l_df.empty:
+            for _, l_row in l_df.iterrows():
+                with st.container():
+                    st.markdown(f"""
+                    <div style="background:white; border-radius:10px; padding:12px; border:1px solid #e2e8f0; margin-bottom:10px;">
+                        <b>🏦 {l_row['loan_name']}</b><br>
+                        • மாதாந்திர தவணை: <b>₹{l_row['monthly_emi']:,.2f}</b> (தேதி: {l_row['due_day']})<br>
+                        • அசல் இருப்பு: <b>₹{l_row['total_amount']:,.2f}</b> | மீதம்: <b>{l_row['remaining_months']} மாதங்கள்</b>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if st.button("🗑️ இந்தக் கடனை நீக்கு", key=f"del_loan_{l_row['id']}"):
+                        conn = get_db()
+                        conn.execute("DELETE FROM loans WHERE id = ?", (l_row['id'],))
+                        conn.commit()
+                        conn.close()
+                        st.success("கடன் நீக்கப்பட்டது!")
+                        st.rerun()
+        else:
+            st.info("தற்போது கடன்கள் எதுவும் பதிவு செய்யப்படவில்லை. புதிய கடனைச் சேர்க்க இடதுபுற படிவத்தைப் பயன்படுத்தவும்.")
 
 # ==================== 6. OTHER ALERTS ====================
 with tab_alerts:
