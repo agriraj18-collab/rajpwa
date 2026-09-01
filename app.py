@@ -5,7 +5,7 @@ import re
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
-st.set_page_config(page_title="RAJPWA - குடும்ப நிதி & எச்சரிக்கை மேலாண்மை", page_icon="💎", layout="wide")
+st.set_page_config(page_title="RAJPWA - குடும்ப நிதி & வரலாற்று மேலாண்மை", page_icon="💎", layout="wide")
 
 # --- DATABASE CONNECTION ---
 def get_db():
@@ -104,36 +104,53 @@ def extract_amount(text):
     return 0.0
 
 # --- TOP HEADER ---
-st.title("💎 RAJPWA — குடும்ப நிதி & எச்சரிக்கை மேலாண்மை")
-current_month = datetime.now().strftime("%Y-%m")
+st.title("💎 RAJPWA — குடும்ப நிதி & செலவு மேலாண்மை")
 
 # பயனர் தேர்வு
 active_user = st.radio("தற்போதைய பயனர் யார்?", ["👤 Rajkumar (கணவர்)", "👩 மனைவி (Household)"], horizontal=True)
 
 # 7 தனித்தனி டேப்கள்
-tab_dash, tab_entry, tab_upload, tab_alerts, tab_grocery, tab_loans, tab_report = st.tabs([
-    "📊 டேஷ்போர்டு", 
+tab_dash, tab_history, tab_entry, tab_upload, tab_alerts, tab_grocery, tab_loans = st.tabs([
+    "📊 டேஷ்போர்டு (Dashboard)", 
+    "📜 வரலாற்று அறிக்கைகள் (History)",
     "➕ செலவு பதிவு & SMS", 
     "📁 பழைய SMS & ஸ்டேட்மென்ட்",
     "🔔 இதர எச்சரிக்கைகள்", 
     "🛒 மளிகை ஸ்டாக்", 
-    "🏦 கடன்கள்", 
-    "📈 குடும்ப அறிக்கை"
+    "🏦 கடன்கள்"
 ])
 
 # ==================== 1. DASHBOARD ====================
 with tab_dash:
-    st.subheader(f"📅 {datetime.now().strftime('%B %Y')} மாதாந்திர நிலவரம்")
     conn = get_db()
-    df = pd.read_sql_query(f"SELECT * FROM expenses WHERE strftime('%Y-%m', date) = '{current_month}'", conn)
+    all_df = pd.read_sql_query("SELECT * FROM expenses", conn)
     conn.close()
     
+    # கிடைக்கும் அனைத்து மாதங்களின் பட்டியல் (Month Selector)
+    available_months = ["இந்த மாதம் (நடப்பு மாதம்)"]
+    if not all_df.empty:
+        all_df['month_year'] = pd.to_datetime(all_df['date'], errors='coerce').dt.strftime('%Y-%m')
+        unique_months = sorted([m for m in all_df['month_year'].dropna().unique()], reverse=True)
+        available_months += unique_months
+        
+    col_m1, col_m2 = st.columns(2)
+    selected_view = col_m1.selectbox("📅 எந்த மாதத்திற்கான கணக்கு பார்க்க வேண்டும்?", available_months)
+    
+    current_m = datetime.now().strftime("%Y-%m")
+    if selected_view == "இந்த மாதம் (நடப்பு மாதம்)":
+        target_month = current_m
+    else:
+        target_month = selected_view
+        
+    df = all_df[all_df['month_year'] == target_month] if not all_df.empty and 'month_year' in all_df else pd.DataFrame()
+    
+    st.subheader(f"📅 {target_month} மாத நிலவரம்")
     total_spent = df['amount'].sum() if not df.empty else 0.0
     wife_spent = df[df['user'].str.contains('மனைவி')]['amount'].sum() if not df.empty else 0.0
     wife_remaining = max(0.0, 40000.0 - wife_spent)
     
     c1, c2, c3 = st.columns(3)
-    c1.metric("குடும்ப மொத்த செலவு", f"₹{total_spent:,.2f}")
+    c1.metric("மொத்த செலவு", f"₹{total_spent:,.2f}")
     c2.metric("மனைவி வீட்டு பட்ஜெட் (₹40k-ல்)", f"₹{wife_spent:,.2f} செலவு", f"மீதம்: ₹{wife_remaining:,.2f}")
     c3.metric("மாத சேமிப்பு நிலை", f"₹{max(0.0, 65000.0 - total_spent):,.2f}")
     
@@ -143,11 +160,11 @@ with tab_dash:
         st.dataframe(summary.rename(columns={"category": "பிரிவு", "amount": "தொகை (₹)"}), use_container_width=True)
         
         # சமீபத்திய செலவுகள் மற்றும் நீக்கும் வசதி
-        st.write("### 📋 சமீபத்திய செலவுகள் (நீக்க/திருத்த):")
+        st.write("### 📋 அந்த மாத செலவுகள் (நீக்க/திருத்த):")
         recent_df = df.sort_values(by="id", ascending=False)
-        for _, r in recent_df.iterrows():
+        for _, r in recent_df.head(20).iterrows():
             d_col1, d_col2 = st.columns(2)
-            d_col1.write(f"• **{r['date'][:16]}** | {r['user']} | **{r['category']}** : ₹{r['amount']:,.2f} ({r['notes']})")
+            d_col1.write(f"• **{r['date'][:16]}** | {r['user']} | **{r['category']}** : ₹{r['amount']:,.2f} ({r['notes'][:40]}...)")
             if d_col2.button(f"🗑️ நீக்கு (ID: {r['id']})", key=f"del_exp_{r['id']}"):
                 conn = get_db()
                 conn.execute("DELETE FROM expenses WHERE id = ?", (r['id'],))
@@ -156,18 +173,29 @@ with tab_dash:
                 st.success("செலவு நீக்கப்பட்டது!")
                 st.rerun()
 
-        # அனைத்து டெஸ்ட் பதிவுகளையும் அழிக்கும் வசதி
-        with st.expander("⚠️ அனைத்து செலவுப் பதிவுகளையும் அழிக்க (Reset All Expenses)"):
-            st.warning("அனைத்து டெஸ்ட் செலவுகளையும் அழித்து கணக்கை ₹0-க்கு மாற்ற வேண்டுமா?")
-            if st.button("🚨 அனைத்து செலவுகளையும் அழி (Clear All)"):
-                conn = get_db()
-                conn.execute("DELETE FROM expenses")
-                conn.commit()
-                conn.close()
-                st.success("அனைத்து பதிவுகளும் அழிக்கப்பட்டு கணக்கு ₹0 என ரீசெட் செய்யப்பட்டது!")
-                st.rerun()
+# ==================== 2. HISTORY & TRENDS ====================
+with tab_history:
+    st.subheader("📜 கடந்த 1 வருட முழுமையான செலவு வரலாறு & வரைபடம்")
+    conn = get_db()
+    h_df = pd.read_sql_query("SELECT * FROM expenses ORDER BY date DESC", conn)
+    conn.close()
+    
+    if not h_df.empty:
+        h_df['month_year'] = pd.to_datetime(h_df['date'], errors='coerce').dt.strftime('%Y-%m')
+        
+        # மாதாந்திர வரைபடம் (Monthly Summary Chart)
+        monthly_trend = h_df.groupby("month_year")["amount"].sum().reset_index()
+        st.write("### 📊 மாதம் தோறும் மொத்த செலவு ஒப்பீடு:")
+        st.bar_chart(monthly_trend.set_index("month_year"))
+        
+        st.write("### 📑 அனைத்து பரிவர்த்தனைகள் பட்டியல் (Total Records):")
+        st.dataframe(h_df[['date', 'user', 'category', 'amount', 'merchant', 'notes']].rename(columns={
+            'date': 'தேதி & நேரம்', 'user': 'பயனர்', 'category': 'பிரிவு', 'amount': 'தொகை (₹)', 'merchant': 'சேவை/கடை', 'notes': 'முழு SMS உரை'
+        }), use_container_width=True)
+    else:
+        st.info("டேட்டாபேஸில் இன்னும் பழைய பரிவர்த்தனைகள் எதுவும் இல்லை.")
 
-# ==================== 2. SMS & MANUAL INPUT ====================
+# ==================== 3. SMS & MANUAL INPUT ====================
 with tab_entry:
     st.subheader("📲 செலவு & SMS டிகோடர்")
     
@@ -249,7 +277,7 @@ with tab_entry:
             st.success(f"✅ ₹{man_amt:,.2f} ({man_cat}) பதிவானது!")
             st.rerun()
 
-# ==================== 3. UPLOAD OLD SMS & STATEMENTS ====================
+# ==================== 4. UPLOAD OLD SMS & STATEMENTS ====================
 with tab_upload:
     st.subheader("📁 பழைய 1 வருட SMS & வங்கி அறிக்கைகள் பதிவேற்றம்")
     st.caption("கடந்த 1 வருட மெசேஜ்கள் அல்லது SBI / Credit Card அறிக்கைகளை (CSV / Excel / XML) இங்கே அப்லோட் செய்யலாம்.")
@@ -260,11 +288,10 @@ with tab_upload:
     if sms_file is not None:
         if st.button("🚀 பழைய SMS-களைப் படித்து டேட்டாபேஸில் ஏற்றவும்"):
             try:
-                count_added = 0
                 conn = get_db()
                 batch_records = []
                 
-                # XML Backup parsing with safe exception handling
+                # XML Backup parsing
                 if sms_file.name.endswith(".xml"):
                     tree = ET.parse(sms_file)
                     root = tree.getroot()
@@ -300,9 +327,11 @@ with tab_upload:
                     conn.executemany("INSERT INTO expenses (date, user, category, amount, mode, merchant, notes) VALUES (?, ?, ?, ?, ?, ?, ?)", batch_records)
                     conn.commit()
                     count_added = len(batch_records)
+                    st.success(f"🎉 வெற்றி! {count_added} பழைய செலவுப் பரிவர்த்தனைகள் வெற்றிகரமாக டேட்டாபேஸில் சேர்க்கப்பட்டன! 'வரலாற்று அறிக்கைகள்' டேபில் பார்க்கலாம்.")
+                else:
+                    st.warning("இந்தக் கோப்பில் செலவு மெசேஜ்கள் எதுவும் புதிதாகக் கண்டறியப்படவில்லை.")
                     
                 conn.close()
-                st.success(f"🎉 வெற்றி! {count_added} பழைய செலவுப் பரிவர்த்தனைகள் வெற்றிகரமாக டேட்டாபேஸில் சேர்க்கப்பட்டன!")
                 st.rerun()
             except Exception as e:
                 st.error(f"பிழை: {e}")
@@ -325,7 +354,7 @@ with tab_upload:
             except Exception as e:
                 st.error(f"பிழை: {e}")
 
-# ==================== 4. OTHER ALERTS ====================
+# ==================== 5. OTHER ALERTS ====================
 with tab_alerts:
     st.subheader("🔔 இதர எச்சரிக்கைகள் & தமிழ் விளக்கம் (Non-Expense Alerts)")
     st.caption("செலவு அல்லாத OTP, வங்கி மேண்டேட், பங்குச் சந்தை மற்றும் சேவை அறிவிப்புகள் இங்கே சேமிக்கப்படும்.")
@@ -349,7 +378,7 @@ with tab_alerts:
     else:
         st.write("இதர எச்சரிக்கைகள் எதுவும் இதுவரை வரவில்லை.")
 
-# ==================== 5. GROCERY STOCK ====================
+# ==================== 6. GROCERY STOCK ====================
 with tab_grocery:
     st.subheader("🛒 மளிகை பொருட்கள் கையிருப்பு மேலாண்மை")
     conn = get_db()
@@ -385,7 +414,7 @@ with tab_grocery:
         else:
             st.success("✅ அனைத்துப் பொருட்களும் தேவையான அளவு கையிருப்பில் உள்ளன!")
 
-# ==================== 6. LOANS ====================
+# ==================== 7. LOANS ====================
 with tab_loans:
     st.subheader("🏦 கடன் & EMI கண்காணிப்பு")
     conn = get_db()
@@ -395,17 +424,3 @@ with tab_loans:
         "loan_name": "கடன் பெயர்", "total_amount": "அசல் / இருப்பு (₹)",
         "monthly_emi": "மாத தவணை (₹)", "due_day": "தவணை தேதி", "remaining_months": "மீதமுள்ள மாதங்கள்"
     }), use_container_width=True)
-
-# ==================== 7. FAMILY PEACE REPORT ====================
-with tab_report:
-    st.subheader("📈 குடும்ப மாதாந்திர நிதி அறிக்கை")
-    conn = get_db()
-    rep = pd.read_sql_query(f"SELECT category, user, SUM(amount) as total FROM expenses WHERE strftime('%Y-%m', date) = '{current_month}' GROUP BY category, user", conn)
-    conn.close()
-    
-    st.info(f"### 📋 {datetime.now().strftime('%B %Y')} மாத செலவு சுருக்கம்")
-    if not rep.empty:
-        st.dataframe(rep.rename(columns={"category": "பிரிவு", "user": "செலவு செய்தவர்", "total": "தொகை (₹)"}), use_container_width=True)
-        st.success(f"### 💵 மொத்த குடும்ப செலவு: ₹{rep['total'].sum():,.2f}")
-    else:
-        st.write("இந்த மாத செலவுகள் எதுவும் இன்னும் பதிவாகவில்லை.")
