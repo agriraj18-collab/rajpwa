@@ -94,7 +94,7 @@ current_month = datetime.now().strftime("%Y-%m")
 # பயனர் தேர்வு
 active_user = st.radio("தற்போதைய பயனர் யார்?", ["👤 Rajkumar (கணவர்)", "👩 மனைவி (Household)"], horizontal=True)
 
-# 6 தனித்தனி டேப்கள் (புதிய "இதர எச்சரிக்கைகள்" டேப் சேர்க்கப்பட்டது!)
+# 6 தனித்தனி டேப்கள்
 tab_dash, tab_entry, tab_alerts, tab_grocery, tab_loans, tab_report = st.tabs([
     "📊 டேஷ்போர்டு", 
     "➕ செலவு பதிவு & SMS", 
@@ -124,6 +124,31 @@ with tab_dash:
         st.write("### 📌 துறை வாரியான செலவுகள்:")
         summary = df.groupby("category")["amount"].sum().reset_index()
         st.dataframe(summary.rename(columns={"category": "பிரிவு", "amount": "தொகை (₹)"}), use_container_width=True)
+        
+        # சமீபத்திய செலவுகள் மற்றும் நீக்கும் வசதி (Delete Entry)
+        st.write("### 📋 சமீபத்திய செலவுகள் (நீக்க/திருத்த):")
+        recent_df = df.sort_values(by="id", ascending=False)
+        for _, r in recent_df.iterrows():
+            d_col1, d_col2 = st.columns()
+            d_col1.write(f"• **{r['date'][:16]}** | {r['user']} | **{r['category']}** : ₹{r['amount']:,.2f} ({r['notes']})")
+            if d_col2.button("🗑️ நீக்கு", key=f"del_exp_{r['id']}"):
+                conn = get_db()
+                conn.execute("DELETE FROM expenses WHERE id = ?", (r['id'],))
+                conn.commit()
+                conn.close()
+                st.success(f"செலவு நீக்கப்பட்டது!")
+                st.rerun()
+
+        # அனைத்து டெஸ்ட் பதிவுகளையும் அழிக்கும் வசதி (Clear All)
+        with st.expander("⚠️ அனைத்து செலவுப் பதிவுகளையும் அழிக்க (Reset All Expenses)"):
+            st.warning("அனைத்து டெஸ்ட் செலவுகளையும் அழித்து கணக்கை ₹0-க்கு மாற்ற வேண்டுமா?")
+            if st.button("🚨 அனைத்து செலவுகளையும் அழி (Clear All)"):
+                conn = get_db()
+                conn.execute("DELETE FROM expenses")
+                conn.commit()
+                conn.close()
+                st.success("அனைத்து பதிவுகளும் அழிக்கப்பட்டு கணக்கு ₹0 என ரீசெட் செய்யப்பட்டது!")
+                st.rerun()
 
 # ==================== 2. SMS & MANUAL INPUT ====================
 with tab_entry:
@@ -216,7 +241,7 @@ with tab_alerts:
     st.caption("செலவு அல்லாத OTP, வங்கி மேண்டேட், பங்குச் சந்தை மற்றும் சேவை அறிவிப்புகள் இங்கே சேமிக்கப்படும்.")
     
     conn = get_db()
-    alerts_df = pd.read_sql_query("SELECT date, category, explanation, raw_text FROM other_alerts ORDER BY id DESC", conn)
+    alerts_df = pd.read_sql_query("SELECT id, date, category, explanation, raw_text FROM other_alerts ORDER BY id DESC", conn)
     conn.close()
     
     if not alerts_df.empty:
@@ -224,6 +249,13 @@ with tab_alerts:
             with st.expander(f"{row['category']} — {row['date']}"):
                 st.write(f"💡 **விளக்கம்:** {row['explanation']}")
                 st.code(row['raw_text'], language="text")
+                if st.button(f"🗑️ இந்த எச்சரிக்கையை நீக்கு", key=f"del_alert_{row['id']}"):
+                    conn = get_db()
+                    conn.execute("DELETE FROM other_alerts WHERE id = ?", (row['id'],))
+                    conn.commit()
+                    conn.close()
+                    st.success("எச்சரிக்கை நீக்கப்பட்டது!")
+                    st.rerun()
     else:
         st.write("இதர எச்சரிக்கைகள் எதுவும் இதுவரை வரவில்லை.")
 
