@@ -74,7 +74,7 @@ st.title("💎 RAJPWA — குடும்ப நிதி & செலவு �
 current_month = datetime.now().strftime("%Y-%m")
 
 # பயனர் தேர்வு (கணவர் / மனைவி)
-col_u1, col_u2 = st.columns()
+col_u1, col_u2 = st.columns(2)
 active_user = col_u2.radio("தற்போதைய பயனர்:", ["👤 Rajkumar (கணவர்)", "👩 மனைவி (Household)"], horizontal=True)
 
 tabs = st.tabs(["📊 டேஷ்போர்டு", "➕ செலவு பதிவு & SMS", "🛒 மளிகை ஸ்டாக்", "🏦 கடன்கள்", "📈 குடும்ப அறிக்கை"])
