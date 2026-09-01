@@ -163,19 +163,19 @@ with tab_grocery:
     g_df = pd.read_sql_query("SELECT * FROM grocery_stock", conn)
     conn.close()
     
-    col_l, col_r = st.columns(2)
-    with col_l:
+    col_left, col_right = st.columns(2)
+    with col_left:
         st.write("### 📦 கையிருப்பு அளவு:")
         for _, row in g_df.iterrows():
             st.write(f"**{row['item_name']}** — இருப்பு: **{row['stock']} {row['unit']}**")
-            b_col1, b_col2, b_empty = st.columns()
-            if b_col1.button("➕ 1", key=f"add_{row['id']}"):
+            btn_add, btn_sub = st.columns(2)
+            if btn_add.button(f"➕ 1 ({row['item_name']})", key=f"add_{row['id']}"):
                 conn = get_db()
                 conn.execute("UPDATE grocery_stock SET stock = stock + 1 WHERE id = ?", (row['id'],))
                 conn.commit()
                 conn.close()
                 st.rerun()
-            if b_col2.button("➖ 1", key=f"sub_{row['id']}"):
+            if btn_sub.button(f"➖ 1 ({row['item_name']})", key=f"sub_{row['id']}"):
                 conn = get_db()
                 conn.execute("UPDATE grocery_stock SET stock = MAX(0.0, stock - 1) WHERE id = ?", (row['id'],))
                 conn.commit()
@@ -183,7 +183,7 @@ with tab_grocery:
                 st.rerun()
             st.markdown("---")
                 
-    with col_r:
+    with col_right:
         st.write("### 🚨 வாங்க வேண்டிய பொருட்கள் (Reorder List):")
         low = g_df[g_df['stock'] <= g_df['min_stock']]
         if not low.empty:
