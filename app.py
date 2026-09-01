@@ -88,6 +88,21 @@ def init_db():
 
 init_db()
 
+# --- HELPER FUNCTION: EXTRACT AMOUNT SAFELY ---
+def extract_amount(text):
+    if not text:
+        return 0.0
+    match = re.search(r"(?:rs\.?|inr|\u20b9)\s*([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)", text, re.IGNORECASE)
+    if match:
+        raw_val = match.group(1).replace(",", "").strip()
+        try:
+            val = float(raw_val)
+            if val > 0:
+                return val
+        except ValueError:
+            pass
+    return 0.0
+
 # --- TOP HEADER ---
 st.title("💎 RAJPWA — குடும்ப நிதி & எச்சரிக்கை மேலாண்மை")
 current_month = datetime.now().strftime("%Y-%m")
@@ -162,14 +177,11 @@ with tab_entry:
     if st.button("🔍 SMS-ஐப் படித்து வகைப்படுத்தவும்"):
         if sms_txt:
             txt_low = sms_txt.lower()
-            
-            # தொகையைக் கண்டறிதல்
-            amt_match = re.search(r"(?:rs\.?|inr|\u20b9)\s*([\d,]+\.?\d*)", sms_txt, re.IGNORECASE)
+            amt = extract_amount(sms_txt)
             is_debit = any(w in txt_low for w in ["debit", "debited", "spent", "paid", "recharge of", "withdrawn"])
             
             # அ. செலவு மெசேஜ்
-            if is_debit and amt_match:
-                amt = float(amt_match.group(1).replace(",", ""))
+            if is_debit and amt > 0:
                 cat = "இதர செலவுகள்"
                 if any(x in txt_low for x in ["petrol", "fuel", "diesel", "iocl", "hpcl", "bpcl"]):
                     cat = "வாகனம் & Fuel"
@@ -250,40 +262,47 @@ with tab_upload:
             try:
                 count_added = 0
                 conn = get_db()
+                batch_records = []
                 
-                # XML Backup parsing
+                # XML Backup parsing with safe exception handling
                 if sms_file.name.endswith(".xml"):
                     tree = ET.parse(sms_file)
                     root = tree.getroot()
                     for sms in root.findall("sms"):
-                        body = sms.get("body", "")
-                        date_ms = int(sms.get("date", "0"))
-                        date_str = pd.to_datetime(date_ms, unit="ms").strftime("%Y-%m-%d %H:%M:%S")
-                        address = sms.get("address", "SMS")
-                        
-                        txt_low = body.lower()
-                        amt_match = re.search(r"(?:rs\.?|inr|\u20b9)\s*([\d,]+\.?\d*)", body, re.IGNORECASE)
-                        is_debit = any(w in txt_low for w in ["debit", "debited", "spent", "paid", "recharge of", "withdrawn"])
-                        
-                        if is_debit and amt_match:
-                            amt = float(amt_match.group(1).replace(",", ""))
-                            cat = "இதர செலவுகள்"
-                            if any(x in txt_low for x in ["petrol", "fuel", "diesel", "iocl", "hpcl", "bpcl"]):
-                                cat = "வாகனம் & Fuel"
-                            elif any(x in txt_low for x in ["lntfin", "loan", "emi"]):
-                                cat = "கடன்கள் & EMI"
-                            elif any(x in txt_low for x in ["tangedco", "electricity"]):
-                                cat = "மின்சாரக் கட்டணம்"
-                            elif any(x in txt_low for x in ["mart", "grocery"]):
-                                cat = "மளிகை & உணவு"
-                                
-                            conn.execute("INSERT INTO expenses (date, user, category, amount, mode, merchant, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                                         (date_str, active_user, cat, amt, "Old SMS", address, body))
-                            count_added += 1
+                        try:
+                            body = sms.get("body", "")
+                            if not body:
+                                continue
+                            date_ms = int(sms.get("date", "0"))
+                            date_str = pd.to_datetime(date_ms, unit="ms").strftime("%Y-%m-%d %H:%M:%S")
+                            address = sms.get("address", "SMS")
                             
-                conn.commit()
+                            txt_low = body.lower()
+                            amt = extract_amount(body)
+                            is_debit = any(w in txt_low for w in ["debit", "debited", "spent", "paid", "recharge of", "withdrawn"])
+                            
+                            if is_debit and amt > 0:
+                                cat = "இதர செலவுகள்"
+                                if any(x in txt_low for x in ["petrol", "fuel", "diesel", "iocl", "hpcl", "bpcl", "fastag"]):
+                                    cat = "வாகனம் & Fuel"
+                                elif any(x in txt_low for x in ["lntfin", "loan", "emi"]):
+                                    cat = "கடன்கள் & EMI"
+                                elif any(x in txt_low for x in ["tangedco", "electricity"]):
+                                    cat = "மின்சாரக் கட்டணம்"
+                                elif any(x in txt_low for x in ["mart", "grocery", "vegetable"]):
+                                    cat = "மளிகை & உணவு"
+                                    
+                                batch_records.append((date_str, active_user, cat, amt, "Old SMS", address, body))
+                        except Exception:
+                            continue
+                            
+                if batch_records:
+                    conn.executemany("INSERT INTO expenses (date, user, category, amount, mode, merchant, notes) VALUES (?, ?, ?, ?, ?, ?, ?)", batch_records)
+                    conn.commit()
+                    count_added = len(batch_records)
+                    
                 conn.close()
-                st.success(f"🎉 வெற்றி! {count_added} பழைய பரிவர்த்தனைகள் வெற்றிகரமாக டேட்டாபேஸில் சேர்க்கப்பட்டன!")
+                st.success(f"🎉 வெற்றி! {count_added} பழைய செலவுப் பரிவர்த்தனைகள் வெற்றிகரமாக டேட்டாபேஸில் சேர்க்கப்பட்டன!")
                 st.rerun()
             except Exception as e:
                 st.error(f"பிழை: {e}")
