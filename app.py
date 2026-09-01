@@ -8,7 +8,7 @@ from datetime import datetime
 
 # --- PAGE CONFIG ---
 st.set_page_config(
-    page_title="RAJPWA — குடும்ப நிதி & செலவு மேலாண்மை",
+    page_title="RAJPWA — குடும்ப நிதி மேலாண்மை",
     page_icon="💎",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -23,7 +23,7 @@ st.markdown("""
     }
     .app-header {
         background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 50%, #06b6d4 100%);
-        padding: 24px;
+        padding: 22px;
         border-radius: 16px;
         color: white;
         text-align: center;
@@ -45,7 +45,7 @@ st.markdown("""
     }
     .metric-card {
         background: white;
-        padding: 20px;
+        padding: 18px;
         border-radius: 14px;
         border: 1px solid #e2e8f0;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
@@ -114,15 +114,6 @@ def init_db():
         )
     """)
     c.execute("""
-        CREATE TABLE IF NOT EXISTS grocery_stock (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            item_name TEXT UNIQUE,
-            stock REAL,
-            unit TEXT,
-            min_stock REAL
-        )
-    """)
-    c.execute("""
         CREATE TABLE IF NOT EXISTS loans (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             loan_name TEXT UNIQUE,
@@ -132,16 +123,6 @@ def init_db():
             remaining_months INTEGER
         )
     """)
-    
-    # ஆரம்ப மளிகைப் பட்டியல்
-    c.execute("SELECT COUNT(*) FROM grocery_stock")
-    if c.fetchone()[0] == 0:
-        c.executemany("INSERT INTO grocery_stock (item_name, stock, unit, min_stock) VALUES (?, ?, ?, ?)", [
-            ("பொன்னி அரிசி (Rice)", 20.0, "kg", 5.0),
-            ("துவரம் பருப்பு (Toor Dal)", 2.0, "kg", 1.0),
-            ("நல்லெண்ணெய் (Gingelly Oil)", 2.0, "Ltr", 1.0),
-            ("தேயிலைத்தூள் (Tea Powder)", 0.5, "kg", 0.25)
-        ])
     
     # ஆரம்பக் கடன்கள்
     c.execute("SELECT COUNT(*) FROM loans")
@@ -175,7 +156,7 @@ def extract_amount(text):
 st.markdown("""
 <div class="app-header">
     <h1>💎 RAJPWA</h1>
-    <p>குடும்ப நிதி, மளிகை இருப்பு & நிகழ்நேரச் செலவு மேலாண்மை செயலி</p>
+    <p>குடும்ப நிதி, கடன்கள் & நிகழ்நேரச் செலவு மேலாண்மை</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -183,15 +164,14 @@ st.markdown("""
 col_user, col_space = st.columns(2)
 active_user = col_user.radio("👤 தற்போதைய பயனர் யார்?", ["👤 Rajkumar (கணவர்)", "👩 மனைவி (Household)"], horizontal=True)
 
-# 7 தனித்தனி டேப்கள்
-tab_dash, tab_history, tab_entry, tab_upload, tab_alerts, tab_grocery, tab_loans = st.tabs([
-    "📊 டேஷ்போர்டு", 
-    "📜 வரலாற்று வரைபடம்",
+# 6 தனித்தனி சுத்தமான டேப்கள்
+tab_dash, tab_history, tab_entry, tab_upload, tab_loans, tab_alerts = st.tabs([
+    "📊 டேஷ்போர்டு (Dashboard)", 
+    "📜 வரலாற்று வரைபடம் (History)",
     "➕ புதிய செலவு & SMS", 
     "📁 பழைய SMS & ஸ்டேட்மென்ட்",
-    "🔔 இதர எச்சரிக்கைகள்", 
-    "🛒 மளிகை ஸ்டாக்", 
-    "🏦 கடன்கள்"
+    "🏦 கடன்கள் & EMI",
+    "🔔 இதர எச்சரிக்கைகள்"
 ])
 
 # ==================== 1. DASHBOARD ====================
@@ -323,7 +303,7 @@ with tab_entry:
                 
                 if is_debit and amt > 0:
                     cat = "இதர செலவுகள்"
-                    if any(x in txt_low for x in ["petrol", "fuel", "diesel", "iocl", "hpcl", "bpcl"]):
+                    if any(x in txt_low for x in ["petrol", "fuel", "diesel", "iocl", "hpcl", "bpcl", "fastag"]):
                         cat = "வாகனம் & Fuel"
                     elif any(x in txt_low for x in ["lntfin", "loan", "emi"]):
                         cat = "கடன்கள் & EMI"
@@ -426,7 +406,18 @@ with tab_upload:
             except Exception as e:
                 st.error(f"பிழை: {e}")
 
-# ==================== 5. OTHER ALERTS ====================
+# ==================== 5. LOANS ====================
+with tab_loans:
+    st.subheader("🏦 கடன் & EMI கண்காணிப்பு")
+    conn = get_db()
+    l_df = pd.read_sql_query("SELECT * FROM loans", conn)
+    conn.close()
+    st.dataframe(l_df.rename(columns={
+        "loan_name": "கடன் பெயர்", "total_amount": "அசல் / இருப்பு (₹)",
+        "monthly_emi": "மாத தவணை (₹)", "due_day": "தவணை தேதி", "remaining_months": "மீதமுள்ள மாதங்கள்"
+    }), use_container_width=True)
+
+# ==================== 6. OTHER ALERTS ====================
 with tab_alerts:
     st.subheader("🔔 இதர எச்சரிக்கைகள் & தமிழ் விளக்கம்")
     conn = get_db()
@@ -442,53 +433,7 @@ with tab_alerts:
                     conn.execute("DELETE FROM other_alerts WHERE id = ?", (row['id'],))
                     conn.commit()
                     conn.close()
+                    st.success("எச்சரிக்கை நீக்கப்பட்டது!")
                     st.rerun()
     else:
         st.info("இதர எச்சரிக்கைகள் எதுவும் இல்லை.")
-
-# ==================== 6. GROCERY STOCK ====================
-with tab_grocery:
-    st.subheader("🛒 மளிகை பொருட்கள் கையிருப்பு மேலாண்மை")
-    conn = get_db()
-    g_df = pd.read_sql_query("SELECT * FROM grocery_stock", conn)
-    conn.close()
-    
-    col_left, col_right = st.columns(2)
-    with col_left:
-        st.write("### 📦 கையிருப்பு அளவு:")
-        for _, row in g_df.iterrows():
-            st.write(f"**{row['item_name']}** — இருப்பு: **{row['stock']} {row['unit']}**")
-            btn_add, btn_sub = st.columns(2)
-            if btn_add.button(f"➕ 1 ({row['item_name']})", key=f"add_{row['id']}"):
-                conn = get_db()
-                conn.execute("UPDATE grocery_stock SET stock = stock + 1 WHERE id = ?", (row['id'],))
-                conn.commit()
-                conn.close()
-                st.rerun()
-            if btn_sub.button(f"➖ 1 ({row['item_name']})", key=f"sub_{row['id']}"):
-                conn = get_db()
-                conn.execute("UPDATE grocery_stock SET stock = MAX(0.0, stock - 1) WHERE id = ?", (row['id'],))
-                conn.commit()
-                conn.close()
-                st.rerun()
-            st.markdown("---")
-                
-    with col_right:
-        st.write("### 🚨 வாங்க வேண்டிய பொருட்கள்:")
-        low = g_df[g_df['stock'] <= g_df['min_stock']]
-        if not low.empty:
-            for _, r in low.iterrows():
-                st.error(f"⚠️ **{r['item_name']}** (மீதம்: {r['stock']} {r['unit']})")
-        else:
-            st.success("✅ அனைத்துப் பொருட்களும் போதிய அளவில் உள்ளன!")
-
-# ==================== 7. LOANS ====================
-with tab_loans:
-    st.subheader("🏦 கடன் & EMI கண்காணிப்பு")
-    conn = get_db()
-    l_df = pd.read_sql_query("SELECT * FROM loans", conn)
-    conn.close()
-    st.dataframe(l_df.rename(columns={
-        "loan_name": "கடன் பெயர்", "total_amount": "அசல் / இருப்பு (₹)",
-        "monthly_emi": "மாத தவணை (₹)", "due_day": "தவணை தேதி", "remaining_months": "மீதமுள்ள மாதங்கள்"
-    }), use_container_width=True)
