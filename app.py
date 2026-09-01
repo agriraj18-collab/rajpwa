@@ -3,9 +3,85 @@ import sqlite3
 import pandas as pd
 import re
 import xml.etree.ElementTree as ET
+import plotly.express as px
 from datetime import datetime
 
-st.set_page_config(page_title="RAJPWA - குடும்ப நிதி & வரலாற்று மேலாண்மை", page_icon="💎", layout="wide")
+# --- PAGE CONFIG ---
+st.set_page_config(
+    page_title="RAJPWA — குடும்ப நிதி & செலவு மேலாண்மை",
+    page_icon="💎",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+# --- MODERN CUSTOM CSS STYLING ---
+st.markdown("""
+<style>
+    .main {
+        background-color: #f8fafc;
+        font-family: 'Segoe UI', Roboto, sans-serif;
+    }
+    .app-header {
+        background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 50%, #06b6d4 100%);
+        padding: 24px;
+        border-radius: 16px;
+        color: white;
+        text-align: center;
+        margin-bottom: 20px;
+        box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.3);
+    }
+    .app-header h1 {
+        color: white !important;
+        font-weight: 800;
+        font-size: 28px;
+        margin: 0;
+        letter-spacing: 0.5px;
+    }
+    .app-header p {
+        color: #e0f2fe !important;
+        font-size: 14px;
+        margin-top: 6px;
+        margin-bottom: 0;
+    }
+    .metric-card {
+        background: white;
+        padding: 20px;
+        border-radius: 14px;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        text-align: center;
+        transition: transform 0.2s ease;
+    }
+    .metric-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 15px -3px rgba(0, 0, 0, 0.08);
+    }
+    .metric-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .metric-value {
+        font-size: 24px;
+        font-weight: 700;
+        color: #0f172a;
+        margin-top: 6px;
+    }
+    .metric-badge {
+        display: inline-block;
+        font-size: 12px;
+        padding: 3px 10px;
+        border-radius: 20px;
+        margin-top: 6px;
+        font-weight: 600;
+    }
+    .badge-green { background: #dcfce7; color: #166534; }
+    .badge-blue { background: #e0f2fe; color: #0369a1; }
+    .badge-orange { background: #ffedd5; color: #9a3412; }
+</style>
+""", unsafe_allow_html=True)
 
 # --- DATABASE CONNECTION ---
 def get_db():
@@ -15,8 +91,6 @@ def get_db():
 def init_db():
     conn = get_db()
     c = conn.cursor()
-    
-    # 1. செலவுகள் அட்டவணை (Expenses)
     c.execute("""
         CREATE TABLE IF NOT EXISTS expenses (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -29,8 +103,6 @@ def init_db():
             notes TEXT
         )
     """)
-    
-    # 2. இதர எச்சரிக்கைகள் அட்டவணை (Other Alerts)
     c.execute("""
         CREATE TABLE IF NOT EXISTS other_alerts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,8 +113,6 @@ def init_db():
             raw_text TEXT
         )
     """)
-    
-    # 3. மளிகை இருப்பு (Grocery Stock)
     c.execute("""
         CREATE TABLE IF NOT EXISTS grocery_stock (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,8 +122,6 @@ def init_db():
             min_stock REAL
         )
     """)
-    
-    # 4. கடன்கள் (Loans)
     c.execute("""
         CREATE TABLE IF NOT EXISTS loans (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,17 +171,23 @@ def extract_amount(text):
             pass
     return 0.0
 
-# --- TOP HEADER ---
-st.title("💎 RAJPWA — குடும்ப நிதி & செலவு மேலாண்மை")
+# --- APP HEADER BANNER ---
+st.markdown("""
+<div class="app-header">
+    <h1>💎 RAJPWA</h1>
+    <p>குடும்ப நிதி, மளிகை இருப்பு & நிகழ்நேரச் செலவு மேலாண்மை செயலி</p>
+</div>
+""", unsafe_allow_html=True)
 
 # பயனர் தேர்வு
-active_user = st.radio("தற்போதைய பயனர் யார்?", ["👤 Rajkumar (கணவர்)", "👩 மனைவி (Household)"], horizontal=True)
+col_user, col_space = st.columns(2)
+active_user = col_user.radio("👤 தற்போதைய பயனர் யார்?", ["👤 Rajkumar (கணவர்)", "👩 மனைவி (Household)"], horizontal=True)
 
 # 7 தனித்தனி டேப்கள்
 tab_dash, tab_history, tab_entry, tab_upload, tab_alerts, tab_grocery, tab_loans = st.tabs([
-    "📊 டேஷ்போர்டு (Dashboard)", 
-    "📜 வரலாற்று அறிக்கைகள் (History)",
-    "➕ செலவு பதிவு & SMS", 
+    "📊 டேஷ்போர்டு", 
+    "📜 வரலாற்று வரைபடம்",
+    "➕ புதிய செலவு & SMS", 
     "📁 பழைய SMS & ஸ்டேட்மென்ட்",
     "🔔 இதர எச்சரிக்கைகள்", 
     "🛒 மளிகை ஸ்டாக்", 
@@ -126,45 +200,75 @@ with tab_dash:
     all_df = pd.read_sql_query("SELECT * FROM expenses", conn)
     conn.close()
     
-    # கிடைக்கும் அனைத்து மாதங்களின் பட்டியல் (Month Selector)
     available_months = ["இந்த மாதம் (நடப்பு மாதம்)"]
     if not all_df.empty:
         all_df['month_year'] = pd.to_datetime(all_df['date'], errors='coerce').dt.strftime('%Y-%m')
-        unique_months = sorted([m for m in all_df['month_year'].dropna().unique()], reverse=True)
+        unique_months = sorted([m for m in all_df['month_year'].dropna().unique() if m.startswith('202')], reverse=True)
         available_months += unique_months
         
     col_m1, col_m2 = st.columns(2)
     selected_view = col_m1.selectbox("📅 எந்த மாதத்திற்கான கணக்கு பார்க்க வேண்டும்?", available_months)
     
     current_m = datetime.now().strftime("%Y-%m")
-    if selected_view == "இந்த மாதம் (நடப்பு மாதம்)":
-        target_month = current_m
-    else:
-        target_month = selected_view
+    target_month = current_m if selected_view == "இந்த மாதம் (நடப்பு மாதம்)" else selected_view
         
     df = all_df[all_df['month_year'] == target_month] if not all_df.empty and 'month_year' in all_df else pd.DataFrame()
     
-    st.subheader(f"📅 {target_month} மாத நிலவரம்")
     total_spent = df['amount'].sum() if not df.empty else 0.0
     wife_spent = df[df['user'].str.contains('மனைவி')]['amount'].sum() if not df.empty else 0.0
     wife_remaining = max(0.0, 40000.0 - wife_spent)
+    savings_est = max(0.0, 65000.0 - total_spent)
     
+    # Modern Metric Cards
     c1, c2, c3 = st.columns(3)
-    c1.metric("மொத்த செலவு", f"₹{total_spent:,.2f}")
-    c2.metric("மனைவி வீட்டு பட்ஜெட் (₹40k-ல்)", f"₹{wife_spent:,.2f} செலவு", f"மீதம்: ₹{wife_remaining:,.2f}")
-    c3.metric("மாத சேமிப்பு நிலை", f"₹{max(0.0, 65000.0 - total_spent):,.2f}")
+    c1.markdown(f"""
+    <div class="metric-card">
+        <div class="metric-title">💳 {target_month} மொத்த செலவு</div>
+        <div class="metric-value" style="color:#ef4444;">₹{total_spent:,.2f}</div>
+        <span class="metric-badge badge-orange">{len(df)} பரிவர்த்தனைகள்</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    c2.markdown(f"""
+    <div class="metric-card">
+        <div class="metric-title">👩 மனைவி வீட்டு பட்ஜெட் (₹40k)</div>
+        <div class="metric-value" style="color:#0284c7;">₹{wife_spent:,.2f}</div>
+        <span class="metric-badge badge-blue">மீதம்: ₹{wife_remaining:,.2f}</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    c3.markdown(f"""
+    <div class="metric-card">
+        <div class="metric-title">💰 மாத சேமிப்பு நிலை</div>
+        <div class="metric-value" style="color:#10b981;">₹{savings_est:,.2f}</div>
+        <span class="metric-badge badge-green">நிகர சேமிப்பு</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
     
     if not df.empty:
-        st.write("### 📌 துறை வாரியான செலவுகள்:")
+        col_chart, col_table = st.columns(2)
         summary = df.groupby("category")["amount"].sum().reset_index()
-        st.dataframe(summary.rename(columns={"category": "பிரிவு", "amount": "தொகை (₹)"}), use_container_width=True)
         
-        # சமீபத்திய செலவுகள் மற்றும் நீக்கும் வசதி
-        st.write("### 📋 அந்த மாத செலவுகள் (நீக்க/திருத்த):")
+        with col_chart:
+            st.write("### 🍩 துறை வாரியான செலவுப் பகிர்வு:")
+            fig = px.pie(summary, values="amount", names="category", hole=0.45,
+                         color_discrete_sequence=px.colors.qualitative.Prism)
+            fig.update_traces(textposition='inside', textinfo='percent+label')
+            fig.update_layout(margin=dict(t=10, b=10, l=10, r=10), height=300)
+            st.plotly_chart(fig, use_container_width=True)
+            
+        with col_table:
+            st.write("### 📊 செலவு அட்டவணை:")
+            st.dataframe(summary.rename(columns={"category": "பிரிவு", "amount": "தொகை (₹)"}), use_container_width=True, height=280)
+            
+        # சமீபத்திய செலவுகள் பட்டியல்
+        st.write("### 📋 அந்த மாத பரிவர்த்தனைகள் (நீக்க/திருத்த):")
         recent_df = df.sort_values(by="id", ascending=False)
-        for _, r in recent_df.head(20).iterrows():
+        for _, r in recent_df.head(25).iterrows():
             d_col1, d_col2 = st.columns(2)
-            d_col1.write(f"• **{r['date'][:16]}** | {r['user']} | **{r['category']}** : ₹{r['amount']:,.2f} ({r['notes'][:40]}...)")
+            d_col1.write(f"• **{r['date'][:16]}** | **{r['category']}** : ₹{r['amount']:,.2f} | *{r['notes'][:45]}*")
             if d_col2.button(f"🗑️ நீக்கு (ID: {r['id']})", key=f"del_exp_{r['id']}"):
                 conn = get_db()
                 conn.execute("DELETE FROM expenses WHERE id = ?", (r['id'],))
@@ -175,123 +279,117 @@ with tab_dash:
 
 # ==================== 2. HISTORY & TRENDS ====================
 with tab_history:
-    st.subheader("📜 கடந்த 1 வருட முழுமையான செலவு வரலாறு & வரைபடம்")
+    st.subheader("📜 கடந்த கால வரலாற்று வரைபடங்கள் & அறிக்கைகள்")
     conn = get_db()
     h_df = pd.read_sql_query("SELECT * FROM expenses ORDER BY date DESC", conn)
     conn.close()
     
     if not h_df.empty:
         h_df['month_year'] = pd.to_datetime(h_df['date'], errors='coerce').dt.strftime('%Y-%m')
+        valid_history = h_df[h_df['month_year'].str.startswith('202', na=False)]
         
-        # மாதாந்திர வரைபடம் (Monthly Summary Chart)
-        monthly_trend = h_df.groupby("month_year")["amount"].sum().reset_index()
-        st.write("### 📊 மாதம் தோறும் மொத்த செலவு ஒப்பீடு:")
-        st.bar_chart(monthly_trend.set_index("month_year"))
+        # Interactive Monthly Bar Chart with Plotly
+        monthly_trend = valid_history.groupby("month_year")["amount"].sum().reset_index()
+        monthly_trend = monthly_trend.sort_values(by="month_year")
         
-        st.write("### 📑 அனைத்து பரிவர்த்தனைகள் பட்டியல் (Total Records):")
-        st.dataframe(h_df[['date', 'user', 'category', 'amount', 'merchant', 'notes']].rename(columns={
-            'date': 'தேதி & நேரம்', 'user': 'பயனர்', 'category': 'பிரிவு', 'amount': 'தொகை (₹)', 'merchant': 'சேவை/கடை', 'notes': 'முழு SMS உரை'
-        }), use_container_width=True)
+        st.write("### 📊 மாதம் தோறும் செலவு வளர்ச்சி வரைபடம்:")
+        bar_fig = px.bar(monthly_trend, x="month_year", y="amount",
+                         labels={"month_year": "மாதம் / வருடம்", "amount": "மொத்த செலவு (₹)"},
+                         color="amount", color_continuous_scale="Blues", text_auto=".2s")
+        bar_fig.update_layout(height=350, margin=dict(t=10, b=10, l=10, r=10))
+        st.plotly_chart(bar_fig, use_container_width=True)
+        
+        st.write("### 📑 அனைத்து பரிவர்த்தனைகளின் பட்டியல்:")
+        st.dataframe(valid_history[['date', 'user', 'category', 'amount', 'merchant', 'notes']].rename(columns={
+            'date': 'தேதி & நேரம்', 'user': 'பயனர்', 'category': 'பிரிவு', 'amount': 'தொகை (₹)', 'merchant': 'சேவை/கடை', 'notes': 'முழு உரை'
+        }), use_container_width=True, height=400)
     else:
         st.info("டேட்டாபேஸில் இன்னும் பழைய பரிவர்த்தனைகள் எதுவும் இல்லை.")
 
 # ==================== 3. SMS & MANUAL INPUT ====================
 with tab_entry:
-    st.subheader("📲 செலவு & SMS டிகோடர்")
+    st.subheader("📲 புதிய செலவு & SMS டிகோடர்")
     
-    st.markdown("#### 1. SMS டிகோடர் (வங்கி SMS-ஐ பேஸ்ட் செய்யவும்)")
-    sms_txt = st.text_area("SMS உரை:", placeholder="வங்கி செலவு, OTP, மேண்டேட், விளம்பரம் அல்லது பங்குச் சந்தை மெசேஜ்கள்...")
+    col_input1, col_input2 = st.columns(2)
     
-    if st.button("🔍 SMS-ஐப் படித்து வகைப்படுத்தவும்"):
-        if sms_txt:
-            txt_low = sms_txt.lower()
-            amt = extract_amount(sms_txt)
-            is_debit = any(w in txt_low for w in ["debit", "debited", "spent", "paid", "recharge of", "withdrawn"])
+    with col_input1:
+        st.markdown("#### 1. 🔍 SMS டிகோடர் (பேஸ்ட் செய்யவும்)")
+        sms_txt = st.text_area("SMS உரை:", placeholder="வங்கி செலவு, OTP, மேண்டேட், விளம்பரம் அல்லது பங்குச் சந்தை மெசேஜ்கள்...")
+        if st.button("🚀 SMS-ஐப் படித்து வகைப்படுத்துக"):
+            if sms_txt:
+                txt_low = sms_txt.lower()
+                amt = extract_amount(sms_txt)
+                is_debit = any(w in txt_low for w in ["debit", "debited", "spent", "paid", "recharge of", "withdrawn"])
+                
+                if is_debit and amt > 0:
+                    cat = "இதர செலவுகள்"
+                    if any(x in txt_low for x in ["petrol", "fuel", "diesel", "iocl", "hpcl", "bpcl"]):
+                        cat = "வாகனம் & Fuel"
+                    elif any(x in txt_low for x in ["lntfin", "loan", "emi"]):
+                        cat = "கடன்கள் & EMI"
+                    elif any(x in txt_low for x in ["tangedco", "electricity"]):
+                        cat = "மின்சாரக் கட்டணம்"
+                    elif any(x in txt_low for x in ["tea", "bakery", "snack"]):
+                        cat = "டீ & சிற்றுண்டி"
+                    elif any(x in txt_low for x in ["mart", "grocery", "vegetable"]):
+                        cat = "மளிகை & உணவு"
+                        
+                    conn = get_db()
+                    conn.execute("INSERT INTO expenses (date, user, category, amount, mode, merchant, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                             (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), active_user, cat, amt, "SMS / UPI", cat, sms_txt))
+                    conn.commit()
+                    conn.close()
+                    st.success(f"💳 **செலவுப் பதிவு:** {cat} செலவு ₹{amt:,.2f} ({active_user}) கணக்கில் சேர்க்கப்பட்டது!")
+                    st.rerun()
+                else:
+                    cat = "இதர அறிவிப்பு (General Alert)"
+                    explanation = "தகவல் அறிவிப்பு செய்தி (செலவு எதுவும் இல்லை)."
+                    if "otp" in txt_low or "one-time password" in txt_low:
+                        cat = "🔐 பாதுகாப்பு & OTP"
+                        explanation = "ஆப் உள்நுழைவு அல்லது சரிபார்ப்புக்கான OTP வந்துள்ளது."
+                    elif "mandate" in txt_low:
+                        cat = "🏦 வங்கி & UPI Mandate"
+                        explanation = "UPI ஆட்டோபே / மேண்டேட் பதிவு செய்ததற்கான அறிவிப்பு."
+                    elif any(x in txt_low for x in ["stcks", "buy now", "target", "stock", "nifty"]):
+                        cat = "📈 பங்குச் சந்தை டிப்ஸ்"
+                        explanation = "பங்கு வாங்குவதற்கான பரிந்துரை அறிவிப்பு."
+                        
+                    conn = get_db()
+                    conn.execute("INSERT INTO other_alerts (date, sender, category, explanation, raw_text) VALUES (?, ?, ?, ?, ?)",
+                                 (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "SMS", cat, explanation, sms_txt))
+                    conn.commit()
+                    conn.close()
+                    st.info(f"🔔 **{cat}:** {explanation}")
+                    st.rerun()
+
+    with col_input2:
+        st.markdown("#### 2. ✍️ நேரடி மேனுவல் பதிவு (ரொக்கச் செலவு)")
+        with st.form("manual_entry_form"):
+            man_amt = st.number_input("தொகை (₹):", min_value=1.0, value=50.0, step=10.0)
+            man_cat = st.selectbox("பிரிவு:", ["மளிகை & உணவு", "டீ & சிற்றுண்டி", "வாகனம் & Fuel", "மின்சாரக் கட்டணம்", "கடன்கள் & EMI", "விவசாயச் செலவு", "இதர செலவுகள்"])
+            man_mode = st.selectbox("செலுத்திய முறை:", ["ரொக்கம் (Cash)", "PhonePe / GPay", "வங்கி கணக்கு"])
+            man_notes = st.text_input("குறிப்பு:", "")
             
-            # அ. செலவு மெசேஜ்
-            if is_debit and amt > 0:
-                cat = "இதர செலவுகள்"
-                if any(x in txt_low for x in ["petrol", "fuel", "diesel", "iocl", "hpcl", "bpcl"]):
-                    cat = "வாகனம் & Fuel"
-                elif any(x in txt_low for x in ["lntfin", "loan", "emi"]):
-                    cat = "கடன்கள் & EMI"
-                elif any(x in txt_low for x in ["tangedco", "electricity"]):
-                    cat = "மின்சாரக் கட்டணம்"
-                elif any(x in txt_low for x in ["tea", "bakery", "snack"]):
-                    cat = "டீ & சிற்றுண்டி"
-                elif any(x in txt_low for x in ["mart", "grocery", "vegetable"]):
-                    cat = "மளிகை & உணவு"
-                    
+            if st.form_submit_button("➕ செலவைச் சேமிக்கவும்"):
                 conn = get_db()
                 conn.execute("INSERT INTO expenses (date, user, category, amount, mode, merchant, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                         (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), active_user, cat, amt, "SMS / UPI", cat, sms_txt))
+                             (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), active_user, man_cat, man_amt, man_mode, man_notes or "நேரடிப் பதிவு", man_notes))
                 conn.commit()
                 conn.close()
-                st.success(f"💳 **செலவுப் பதிவு:** {cat} செலவு ₹{amt:,.2f} ({active_user}) கணக்கில் சேர்க்கப்பட்டது!")
+                st.success(f"✅ ₹{man_amt:,.2f} ({man_cat}) பதிவானது!")
                 st.rerun()
-                
-            # ஆ. செலவு அல்லாத இதர எச்சரிக்கைகள்
-            else:
-                cat = "இதர அறிவிப்பு (General Alert)"
-                explanation = "தகவல் அறிவிப்பு செய்தி (செலவு எதுவும் இல்லை)."
-                
-                if "otp" in txt_low or "one-time password" in txt_low:
-                    cat = "🔐 பாதுகாப்பு & OTP"
-                    explanation = "ஆப் உள்நுழைவு அல்லது சரிபார்ப்புக்கான OTP வந்துள்ளது (செலவு இல்லை)."
-                elif "mandate" in txt_low:
-                    cat = "🏦 வங்கி & UPI Mandate"
-                    explanation = "UPI ஆட்டோபே / மேண்டேட் பதிவு செய்ததற்கான அறிவிப்பு (பணம் எடுக்கப்படவில்லை)."
-                elif any(x in txt_low for x in ["stcks", "buy now", "target", "stock", "nifty"]):
-                    cat = "📈 பங்குச் சந்தை டிப்ஸ்"
-                    explanation = "பங்கு வாங்குவதற்கான பரிந்துரை / வர்த்தக அறிவிப்பு."
-                elif any(x in txt_low for x in ["application", "pashaz", "status"]):
-                    cat = "📄 சேவை & விண்ணப்ப நிலை"
-                    explanation = "விண்ணப்பம் தொடர்பான சேவை அறிவிப்பு."
-                elif any(x in txt_low for x in ["special live", "worth", "sale", "offer", "discount"]):
-                    cat = "📢 விளம்பரம் & சலுகைகள்"
-                    explanation = "தள்ளுபடி விற்பனை / தயாரிப்பு விளம்பர அறிவிப்பு."
-                    
-                conn = get_db()
-                conn.execute("INSERT INTO other_alerts (date, sender, category, explanation, raw_text) VALUES (?, ?, ?, ?, ?)",
-                             (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "SMS", cat, explanation, sms_txt))
-                conn.commit()
-                conn.close()
-                st.info(f"🔔 **{cat}:** {explanation} (இது 'இதர எச்சரிக்கைகள்' டேபில் சேர்க்கப்பட்டுள்ளது; செலவில் கூட்டப்படவில்லை).")
-                st.rerun()
-
-    st.markdown("---")
-    st.markdown("#### 2. நேரடி மேனுவல் பதிவு (ரொக்க / சில்லறை செலவு)")
-    with st.form("manual_entry"):
-        col_a, col_b = st.columns(2)
-        man_amt = col_a.number_input("தொகை (₹):", min_value=1.0, value=50.0, step=10.0)
-        man_cat = col_b.selectbox("பிரிவு:", ["மளிகை & உணவு", "டீ & சிற்றுண்டி", "வாகனம் & Fuel", "மின்சாரக் கட்டணம்", "கடன்கள் & EMI", "விவசாயச் செலவு", "இதர செலவுகள்"])
-        man_mode = col_a.selectbox("செலுத்திய முறை:", ["ரொக்கம் (Cash)", "PhonePe / GPay", "வங்கி கணக்கு"])
-        man_notes = col_b.text_input("குறிப்பு:", "")
-        
-        if st.form_submit_button("➕ செலவைச் சேமி"):
-            conn = get_db()
-            conn.execute("INSERT INTO expenses (date, user, category, amount, mode, merchant, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                         (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), active_user, man_cat, man_amt, man_mode, man_notes or "நேரடிப் பதிவு", man_notes))
-            conn.commit()
-            conn.close()
-            st.success(f"✅ ₹{man_amt:,.2f} ({man_cat}) பதிவானது!")
-            st.rerun()
 
 # ==================== 4. UPLOAD OLD SMS & STATEMENTS ====================
 with tab_upload:
-    st.subheader("📁 பழைய 1 வருட SMS & வங்கி அறிக்கைகள் பதிவேற்றம்")
+    st.subheader("📁 பழைய SMS & வங்கி அறிக்கைகள் பதிவேற்றம்")
     st.caption("கடந்த 1 வருட மெசேஜ்கள் அல்லது SBI / Credit Card அறிக்கைகளை (CSV / Excel / XML) இங்கே அப்லோட் செய்யலாம்.")
     
-    st.markdown("#### 📥 1. பழைய SMS கோப்பு அப்லோட் (XML / JSON / CSV Backup)")
-    sms_file = st.file_uploader("SMS Backup கோப்பைத் தேர்வு செய்யவும்:", type=["xml", "json", "csv"], key="sms_upload")
-    
+    sms_file = st.file_uploader("📥 SMS Backup கோப்பைத் தேர்வு செய்யவும் (XML / JSON):", type=["xml", "json", "csv"], key="sms_upload")
     if sms_file is not None:
-        if st.button("🚀 பழைய SMS-களைப் படித்து டேட்டாபேஸில் ஏற்றவும்"):
+        if st.button("🚀 பழைய SMS-களைப் படித்து ஏற்றவும்"):
             try:
                 conn = get_db()
                 batch_records = []
-                
-                # XML Backup parsing
                 if sms_file.name.endswith(".xml"):
                     tree = ET.parse(sms_file)
                     root = tree.getroot()
@@ -303,11 +401,9 @@ with tab_upload:
                             date_ms = int(sms.get("date", "0"))
                             date_str = pd.to_datetime(date_ms, unit="ms").strftime("%Y-%m-%d %H:%M:%S")
                             address = sms.get("address", "SMS")
-                            
                             txt_low = body.lower()
                             amt = extract_amount(body)
                             is_debit = any(w in txt_low for w in ["debit", "debited", "spent", "paid", "recharge of", "withdrawn"])
-                            
                             if is_debit and amt > 0:
                                 cat = "இதர செலவுகள்"
                                 if any(x in txt_low for x in ["petrol", "fuel", "diesel", "iocl", "hpcl", "bpcl", "fastag"]):
@@ -316,67 +412,39 @@ with tab_upload:
                                     cat = "கடன்கள் & EMI"
                                 elif any(x in txt_low for x in ["tangedco", "electricity"]):
                                     cat = "மின்சாரக் கட்டணம்"
-                                elif any(x in txt_low for x in ["mart", "grocery", "vegetable"]):
+                                elif any(x in txt_low for x in ["mart", "grocery"]):
                                     cat = "மளிகை & உணவு"
-                                    
                                 batch_records.append((date_str, active_user, cat, amt, "Old SMS", address, body))
                         except Exception:
                             continue
-                            
                 if batch_records:
                     conn.executemany("INSERT INTO expenses (date, user, category, amount, mode, merchant, notes) VALUES (?, ?, ?, ?, ?, ?, ?)", batch_records)
                     conn.commit()
-                    count_added = len(batch_records)
-                    st.success(f"🎉 வெற்றி! {count_added} பழைய செலவுப் பரிவர்த்தனைகள் வெற்றிகரமாக டேட்டாபேஸில் சேர்க்கப்பட்டன! 'வரலாற்று அறிக்கைகள்' டேபில் பார்க்கலாம்.")
-                else:
-                    st.warning("இந்தக் கோப்பில் செலவு மெசேஜ்கள் எதுவும் புதிதாகக் கண்டறியப்படவில்லை.")
-                    
+                    st.success(f"🎉 {len(batch_records)} பழைய செலவுகள் வெற்றிகரமாக சேர்க்கப்பட்டன!")
                 conn.close()
                 st.rerun()
             except Exception as e:
                 st.error(f"பிழை: {e}")
 
-    st.markdown("---")
-    st.markdown("#### 📊 2. வங்கி / கிரெடிட் கார்டு அறிக்கை அப்லோட் (CSV / Excel)")
-    bank_file = st.file_uploader("வங்கி அறிக்கை கோப்பைத் தேர்வு செய்யவும்:", type=["csv", "xlsx", "xls"], key="bank_upload")
-    
-    if bank_file is not None:
-        if st.button("📑 வங்கி அறிக்கையைப் படித்து தணிக்கை செய்க"):
-            try:
-                if bank_file.name.endswith(".csv"):
-                    b_df = pd.read_csv(bank_file)
-                else:
-                    b_df = pd.read_excel(bank_file)
-                
-                st.write("##### 📄 அறிக்கையின் மாதிரித் தரவுகள்:")
-                st.dataframe(b_df.head(5), use_container_width=True)
-                st.success(f"✅ அறிக்கை படிக்கப்பட்டது ({len(b_df)} வரிகள் கண்டறியப்பட்டன)!")
-            except Exception as e:
-                st.error(f"பிழை: {e}")
-
 # ==================== 5. OTHER ALERTS ====================
 with tab_alerts:
-    st.subheader("🔔 இதர எச்சரிக்கைகள் & தமிழ் விளக்கம் (Non-Expense Alerts)")
-    st.caption("செலவு அல்லாத OTP, வங்கி மேண்டேட், பங்குச் சந்தை மற்றும் சேவை அறிவிப்புகள் இங்கே சேமிக்கப்படும்.")
-    
+    st.subheader("🔔 இதர எச்சரிக்கைகள் & தமிழ் விளக்கம்")
     conn = get_db()
     alerts_df = pd.read_sql_query("SELECT id, date, category, explanation, raw_text FROM other_alerts ORDER BY id DESC", conn)
     conn.close()
-    
     if not alerts_df.empty:
         for idx, row in alerts_df.iterrows():
             with st.expander(f"{row['category']} — {row['date']}"):
                 st.write(f"💡 **விளக்கம்:** {row['explanation']}")
                 st.code(row['raw_text'], language="text")
-                if st.button("🗑️ இந்த எச்சரிக்கையை நீக்கு", key=f"del_alert_{row['id']}"):
+                if st.button("🗑️ நீக்கு", key=f"del_alert_{row['id']}"):
                     conn = get_db()
                     conn.execute("DELETE FROM other_alerts WHERE id = ?", (row['id'],))
                     conn.commit()
                     conn.close()
-                    st.success("எச்சரிக்கை நீக்கப்பட்டது!")
                     st.rerun()
     else:
-        st.write("இதர எச்சரிக்கைகள் எதுவும் இதுவரை வரவில்லை.")
+        st.info("இதர எச்சரிக்கைகள் எதுவும் இல்லை.")
 
 # ==================== 6. GROCERY STOCK ====================
 with tab_grocery:
@@ -406,13 +474,13 @@ with tab_grocery:
             st.markdown("---")
                 
     with col_right:
-        st.write("### 🚨 வாங்க வேண்டிய பொருட்கள் (Reorder List):")
+        st.write("### 🚨 வாங்க வேண்டிய பொருட்கள்:")
         low = g_df[g_df['stock'] <= g_df['min_stock']]
         if not low.empty:
             for _, r in low.iterrows():
                 st.error(f"⚠️ **{r['item_name']}** (மீதம்: {r['stock']} {r['unit']})")
         else:
-            st.success("✅ அனைத்துப் பொருட்களும் தேவையான அளவு கையிருப்பில் உள்ளன!")
+            st.success("✅ அனைத்துப் பொருட்களும் போதிய அளவில் உள்ளன!")
 
 # ==================== 7. LOANS ====================
 with tab_loans:
