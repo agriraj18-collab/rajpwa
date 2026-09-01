@@ -69,13 +69,12 @@ def init_db():
 
 init_db()
 
-# --- TOP HEADER & USER SWITCHER ---
+# --- TOP HEADER ---
 st.title("💎 RAJPWA — குடும்ப நிதி & செலவு மேலாண்மை")
 current_month = datetime.now().strftime("%Y-%m")
 
-# பயனர் தேர்வு (கணவர் / மனைவி)
-col_u1, col_u2 = st.columns()
-active_user = col_u2.radio("தற்போதைய பயனர்:", ["👤 Rajkumar (கணவர்)", "👩 மனைவி (Household)"], horizontal=True)
+# பயனர் தேர்வு
+active_user = st.radio("தற்போதைய பயனர் யார்?", ["👤 Rajkumar (கணவர்)", "👩 மனைவி (Household)"], horizontal=True)
 
 # 5 தனித்தனி டேப்கள்
 tab_dash, tab_entry, tab_grocery, tab_loans, tab_report = st.tabs([
@@ -168,21 +167,21 @@ with tab_grocery:
     with col_l:
         st.write("### 📦 கையிருப்பு அளவு:")
         for _, row in g_df.iterrows():
-            c1, c2, c3, c4 = st.columns()
-            c1.write(f"**{row['item_name']}**")
-            c2.write(f"இருப்பு: **{row['stock']} {row['unit']}**")
-            if c3.button("➕ 1", key=f"add_{row['id']}"):
+            st.write(f"**{row['item_name']}** — இருப்பு: **{row['stock']} {row['unit']}**")
+            b_col1, b_col2, b_empty = st.columns()
+            if b_col1.button("➕ 1", key=f"add_{row['id']}"):
                 conn = get_db()
                 conn.execute("UPDATE grocery_stock SET stock = stock + 1 WHERE id = ?", (row['id'],))
                 conn.commit()
                 conn.close()
                 st.rerun()
-            if c4.button("➖ 1", key=f"sub_{row['id']}"):
+            if b_col2.button("➖ 1", key=f"sub_{row['id']}"):
                 conn = get_db()
                 conn.execute("UPDATE grocery_stock SET stock = MAX(0.0, stock - 1) WHERE id = ?", (row['id'],))
                 conn.commit()
                 conn.close()
                 st.rerun()
+            st.markdown("---")
                 
     with col_r:
         st.write("### 🚨 வாங்க வேண்டிய பொருட்கள் (Reorder List):")
